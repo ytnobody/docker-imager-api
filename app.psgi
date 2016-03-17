@@ -20,6 +20,13 @@ sub fetch_image {
     return ($res->content, $res->content_type);
 }
 
+sub imager {
+    my $img_bin = shift;
+    my $image = Imager->new;
+    $image->read(data => $img_bin) or croak $image->errstr;
+    $image;
+}
+
 sub apply_actions {
     my ($img_bin, $mime, @actions) = @_;
     my $modified = $img_bin;
@@ -30,8 +37,7 @@ sub apply_actions {
 
         my @params = @{$action->{params}};
 
-        my $image = Imager->new;
-        $image->read(data => $modified) or croak $image->errstr;
+        my $image = imager($modified);
 
         my $modified_image = __PACKAGE__->$func($image, @params);
         $modified = undef;
@@ -39,18 +45,6 @@ sub apply_actions {
     }
 
     $modified;
-}
-
-sub action_width {
-    my ($class, $image, $width) = @_;
-    my $ratio = $width / $image->getwidth;
-    my $height = int($image->getheight * $ratio);
-    $image->scale(xpixels => $width, ypixels => $height);
-}
-
-sub action_crop {
-    my ($class, $image, $x, $y, $width, $height) = @_;
-    $image->crop(top => $x, left => $y, width => $width, height => $height);
 }
 
 sub mime_to_type {
@@ -62,13 +56,13 @@ sub mime_to_type {
     ;
 }
 
-sub path_to_actions {
-    my $path = shift;
-    return unless $path =~ /\A\/actions\//;
+sub parse_actions {
+    my $req = shift;
+    my @actions = ($req->parameters->get_all('action'));
     map {
-        my ($action, @params) = split ':', $_;
+        my ($action, @params) = split ',', $_;
         {name => $action, params => \@params};
-    } grep {$_ && $_ ne 'actions'} split '/', $path;
+    } @actions;
 }
 
 sub res_error {
@@ -76,16 +70,45 @@ sub res_error {
     [$code, ['Content-type' => 'text/html'], [$message]]
 }
 
+sub action_resize {
+    my ($class, $image, $width) = @_;
+    my $ratio = $width / $image->getwidth;
+    my $height = int($image->getheight * $ratio);
+    $image->scale(xpixels => $width, ypixels => $height);
+}
+
+sub action_crop {
+    my ($class, $image, $x, $y, $width, $height) = @_;
+    $image->crop(top => $x, left => $y, width => $width, height => $height);
+}
+
+sub action_compose {
+    my ($class, $image, $url, $x, $y) = @_;
+    my ($overlay_bin, $mime) = fetch_image($url) or return $image;
+    my $overlay = imager($overlay_bin);
+    $image->compose(src => $overlay, tx => $x, ty => $y);
+}
+
+sub action_gray {
+    my ($class, $image) = @_;
+    $image->convert(preset => 'gray');
+}
+
 sub {
     my $env = shift;
     my $req = Plack::Request->new($env);
 
-    my @actions = path_to_actions($req->path) or return res_error(404 => 'not found');
+    return res_error(404 => 'not found') if $req->path ne '/';
+    my @actions = parse_actions($req);
 
-    my $img_url = $req->parameters->as_hashref->{img};
-    my ($img_bin, $mime) = fetch_image($img_url) or return res_error(500 => 'could not fetch image');
+    my $img_url = $req->parameters->get('img');
 
-    my $modified = apply_actions($img_bin, $mime, @actions);
+    my ($img_bin, $mime, $modified);
+    eval {
+        ($img_bin, $mime) = fetch_image($img_url);
+        $modified = apply_actions($img_bin, $mime, @actions);
+    };
+    return res_error(500 => 'error: '.$@. ' Check your request parameters.') if $@;
 
     [200, ['Content-type' => $mime], [$modified]];
 };
