@@ -67,10 +67,21 @@ Overlaying an image to specified position.
 
 * syntax
 
-    action=compose,[overlay image url],[left],[top]
+    action=compose,[overlay image url],[left],[top],([width])
 
 * example
 
     action=compose,https://www.google.co.jp/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png,0,30
 
+### mosaic
+
+Filtering with mosaic
+
+* syntax
+
+    action=mosaic,[left],[top],[width],[height]
+
+* example
+
+    action=mosaic,20,50,100,60
 

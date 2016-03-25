@@ -79,19 +79,32 @@ sub action_resize {
 
 sub action_crop {
     my ($class, $image, $x, $y, $width, $height) = @_;
-    $image->crop(top => $x, left => $y, width => $width, height => $height);
+    $image->crop(left => $x, top => $y, width => $width, height => $height);
 }
 
 sub action_compose {
-    my ($class, $image, $url, $x, $y) = @_;
+    my ($class, $image, $url, $x, $y, $width) = @_;
     my ($overlay_bin, $mime) = fetch_image($url) or return $image;
     my $overlay = imager($overlay_bin);
+    if ($width) {
+        my $ratio = $width / $overlay->getwidth;
+        my $height = int($overlay->getheight * $ratio);
+        $overlay = $overlay->scale(xpixels => $width, ypixels => $height);
+    }
     $image->compose(src => $overlay, tx => $x, ty => $y);
 }
 
 sub action_gray {
     my ($class, $image) = @_;
     $image->convert(preset => 'gray');
+}
+
+sub action_mosaic {
+    my ($class, $image, $x, $y, $width, $height, $size) = @_;
+    $size ||= 10;
+    my $cropped = $image->crop(left => $x, top => $y, width => $width, height => $height);
+    $cropped->filter(type => 'mosaic', size => $size);
+    $image->compose(src => $cropped, tx => $x, ty => $y);
 }
 
 sub {
